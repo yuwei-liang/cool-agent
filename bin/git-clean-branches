@@ -1,0 +1,69 @@
+#!/bin/zsh
+
+# git-clean-branches - Clean up merged Git branches
+# Author: Yuwei Liang
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Check if we're in a git repository
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo -e "${RED}Error: Not in a Git repository${NC}"
+    exit 1
+fi
+
+# Get the default branch (main or master)
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+if [[ -z "$DEFAULT_BRANCH" ]]; then
+    # Try to detect main/master
+    if git show-ref --verify --quiet refs/remotes/origin/main; then
+        DEFAULT_BRANCH="main"
+    elif git show-ref --verify --quiet refs/remotes/origin/master; then
+        DEFAULT_BRANCH="master"
+    else
+        echo -e "${RED}Error: Could not determine default branch${NC}"
+        exit 1
+    fi
+fi
+
+echo -e "${BLUE}Cleaning up branches merged into ${DEFAULT_BRANCH}...${NC}"
+
+# Switch to default branch
+git checkout "$DEFAULT_BRANCH" > /dev/null 2>&1
+
+# Update default branch
+echo -e "${YELLOW}Updating ${DEFAULT_BRANCH}...${NC}"
+git pull origin "$DEFAULT_BRANCH"
+
+# Find merged branches (excluding current branch and main/master)
+MERGED_BRANCHES=($(git branch --merged | grep -v "\*\|$DEFAULT_BRANCH\|main\|master" | tr -d ' '))
+
+if [[ ${#MERGED_BRANCHES[@]} -eq 0 ]]; then
+    echo -e "${GREEN}No merged branches to clean up.${NC}"
+    exit 0
+fi
+
+echo -e "${YELLOW}Found ${#MERGED_BRANCHES[@]} merged branch(es):${NC}"
+for branch in "${MERGED_BRANCHES[@]}"; do
+    echo "  • $branch"
+done
+
+echo -n -e "\n${YELLOW}Delete these branches? (y/N): ${NC}"
+read response
+
+if [[ "$response" =~ ^[Yy]$ ]]; then
+    for branch in "${MERGED_BRANCHES[@]}"; do
+        if git branch -d "$branch" > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ Deleted: $branch${NC}"
+        else
+            echo -e "${RED}✗ Failed to delete: $branch${NC}"
+        fi
+    done
+    echo -e "\n${GREEN}Branch cleanup completed!${NC}"
+else
+    echo -e "${BLUE}Cleanup cancelled.${NC}"
+fi

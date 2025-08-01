@@ -1,0 +1,28 @@
+#!/bin/zsh
+
+# quick-note - Quickly create timestamped notes
+# Author: Yuwei Liang
+
+NOTES_DIR="$HOME/Documents/quick-notes"
+TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+
+# Colors
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Create notes directory if it doesn't exist
+mkdir -p "$NOTES_DIR"
+
+if [[ $# -eq 0 ]]; then
+    # Interactive mode
+    echo -e "${BLUE}Quick Note (Ctrl+D to save, Ctrl+C to cancel):${NC}"
+    NOTE_FILE="$NOTES_DIR/note_$TIMESTAMP.txt"
+    cat > "$NOTE_FILE"
+    echo -e "\n${GREEN}Note saved: $NOTE_FILE${NC}"
+else
+    # Command line mode
+    NOTE_FILE="$NOTES_DIR/note_$TIMESTAMP.txt"
+    echo "$*" > "$NOTE_FILE"
+    echo -e "${GREEN}Note saved: $NOTE_FILE${NC}"
+fi
