@@ -83,6 +83,12 @@ alias nr='npm run'
 alias ns='npm start'
 alias nt='npm test'
 
+# === Kubernetes Utilities ===
+
+# K8s sync
+alias ksync='k8s-sync'
+alias k8s-watch='k8s-sync'
+
 # === Utility Functions ===
 
 # Create and enter directory
@@ -162,6 +168,7 @@ cool-help() {
     echo "  mrd, downloads          - Move recent downloads to current directory"
     echo "  note, qn               - Quick timestamped notes"
     echo "  git-clean              - Clean up merged Git branches"
+    echo "  ksync, k8s-watch       - Watch folder and sync to Kubernetes pod"
     echo "  cool-help              - Show this help"
     echo "  cool-update            - Update cool-agent aliases"
     echo ""

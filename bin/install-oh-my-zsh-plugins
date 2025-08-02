@@ -1,0 +1,154 @@
+#!/bin/bash
+
+# Install oh-my-zsh plugins script
+# This script helps initialize useful oh-my-zsh plugins on a new laptop
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to print colored output
+print_status() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Check if oh-my-zsh is installed
+check_oh_my_zsh() {
+    if [ -z "$ZSH" ]; then
+        print_error "oh-my-zsh is not installed or ZSH variable is not set"
+        print_status "Please install oh-my-zsh first: https://ohmyz.sh/"
+        exit 1
+    fi
+    
+    if [ ! -d "$ZSH" ]; then
+        print_error "oh-my-zsh directory not found at $ZSH"
+        exit 1
+    fi
+    
+    print_success "oh-my-zsh found at $ZSH"
+}
+
+# Backup current .zshrc
+backup_zshrc() {
+    local zshrc_path="$HOME/.zshrc"
+    local backup_path="$HOME/.zshrc.backup.$(date +%Y%m%d_%H%M%S)"
+    
+    if [ -f "$zshrc_path" ]; then
+        cp "$zshrc_path" "$backup_path"
+        print_success "Backed up .zshrc to $backup_path"
+    else
+        print_warning "No .zshrc file found, will create a new one"
+    fi
+}
+
+# Get current plugins from .zshrc
+get_current_plugins() {
+    local zshrc_path="$HOME/.zshrc"
+    
+    if [ -f "$zshrc_path" ]; then
+        # Extract plugins line, remove comments and extract plugin names
+        local plugins_line=$(grep "^plugins=" "$zshrc_path" | head -1)
+        if [ -n "$plugins_line" ]; then
+            # Extract plugins between parentheses
+            echo "$plugins_line" | sed 's/.*plugins=(\([^)]*\)).*/\1/'
+        fi
+    fi
+}
+
+# Add plugins to .zshrc
+add_plugins() {
+    local zshrc_path="$HOME/.zshrc"
+    local current_plugins="$1"
+    local new_plugins="$2"
+    
+    # Combine current and new plugins, remove duplicates
+    local all_plugins=$(echo "$current_plugins $new_plugins" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/ $//')
+    
+    # Update .zshrc
+    if [ -f "$zshrc_path" ]; then
+        # Replace existing plugins line
+        sed -i.bak "s/^plugins=.*/plugins=($all_plugins)/" "$zshrc_path"
+        rm -f "$zshrc_path.bak"
+    else
+        # Create new .zshrc with plugins
+        echo "plugins=($all_plugins)" >> "$zshrc_path"
+    fi
+    
+    print_success "Updated .zshrc with plugins: $all_plugins"
+}
+
+# Install git-extras if not available
+install_git_extras() {
+    if ! command -v git-extras &> /dev/null; then
+        print_status "Installing git-extras..."
+        if command -v brew &> /dev/null; then
+            brew install git-extras
+            print_success "Installed git-extras via Homebrew"
+        elif command -v apt-get &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y git-extras
+            print_success "Installed git-extras via apt"
+        elif command -v yum &> /dev/null; then
+            sudo yum install -y git-extras
+            print_success "Installed git-extras via yum"
+        else
+            print_warning "Could not install git-extras automatically. Please install it manually."
+        fi
+    else
+        print_success "git-extras is already installed"
+    fi
+}
+
+# Main function
+main() {
+    print_status "Starting oh-my-zsh plugins installation..."
+    
+    # Check oh-my-zsh installation
+    check_oh_my_zsh
+    
+    # Backup current configuration
+    backup_zshrc
+    
+    # Get current plugins
+    local current_plugins=$(get_current_plugins)
+    print_status "Current plugins: $current_plugins"
+    
+    # Define recommended plugins
+    local recommended_plugins="z git-extras git-auto-fetch github"
+    
+    # Add plugins
+    add_plugins "$current_plugins" "$recommended_plugins"
+    
+    # Install git-extras if needed
+    install_git_extras
+    
+    print_success "Plugin installation complete!"
+    print_status "To activate the changes, run: source ~/.zshrc"
+    print_status "Or restart your terminal"
+    
+    echo
+    print_status "Installed plugins and their benefits:"
+    echo "  • z - Smart directory jumping"
+    echo "  • git-extras - Additional git commands (git ignore, git summary, etc.)"
+    echo "  • git-auto-fetch - Auto-fetch from remote repositories"
+    echo "  • github - GitHub CLI integration"
+}
+
+# Run main function
+main "$@" 

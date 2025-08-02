@@ -5,6 +5,7 @@ A collection of convenient CLI commands and aliases for everyday productivity.
 ## Features
 
 - **Move Recent Downloads**: Quickly move the most recently downloaded files to your current directory
+- **Kubernetes File Sync**: Watch a folder and automatically sync files to Kubernetes pods
 - **Extensible Alias System**: Easy setup and management of custom CLI aliases
 
 ## Quick Start
@@ -30,6 +31,46 @@ mrd 3
 # Move downloads from the last 5 minutes
 mrd --minutes 5
 ```
+
+### `k8s-sync` (alias: `ksync`)
+
+Watch a folder and automatically sync files to a Kubernetes pod. Perfect for development workflows where you need to keep local files synchronized with a remote pod.
+
+**Features:**
+- Git-aware syncing (default: only syncs modified/staged/untracked files)
+- Real-time file watching with `fswatch`
+- Configurable file filtering and exclusions
+- Support for multiple containers and namespaces
+- Dry-run mode for testing
+
+Usage:
+```bash
+# Basic sync (Git mode - only modified files)
+k8s-sync /path/to/source my-pod
+
+# Sync to specific namespace and container
+k8s-sync /path/to/source my-pod -n production -c app-container -r /app/src
+
+# Sync all files (not just Git-tracked)
+k8s-sync /path/to/source my-pod --all-files
+
+# Preview what would be synced
+k8s-sync /path/to/source my-pod --dry-run
+
+# Debug mode to see detailed information
+k8s-sync /path/to/source my-pod --debug
+
+# Exclude certain file types
+k8s-sync /path/to/source my-pod -e "*.log" -e "*.tmp"
+
+# Only sync specific file types
+k8s-sync /path/to/source my-pod -i "*.py" -i "*.js"
+```
+
+**Dependencies:**
+- `kubectl` (must be configured)
+- `fswatch` (install with: `brew install fswatch`)
+- `git` (for Git mode, which is default)
 
 ## Installation
 
