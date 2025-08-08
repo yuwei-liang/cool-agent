@@ -1,0 +1,214 @@
+#!/bin/zsh
+
+# k8s-sync-debug - Debug version to troubleshoot sync issues
+# Author: Yuwei Liang
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Debug function - always enabled in this version
+debug_log() {
+    echo -e "${PURPLE}[DEBUG] $1${NC}"
+}
+
+# Check if file is Git-tracked and modified
+is_git_tracked_and_modified() {
+    local file_path=$1
+    local relative_path=${file_path#$SOURCE_DIR/}
+    
+    # Change to source directory to run git commands
+    cd "$SOURCE_DIR" || return 1
+    
+    # Check if file is in git status (modified, staged, or untracked)
+    local git_status=$(git status --porcelain "$relative_path" 2>/dev/null)
+    debug_log "Git status for $relative_path: '$git_status'"
+    
+    if echo "$git_status" | grep -q .; then
+        debug_log "File is Git-tracked and modified: $file_path"
+        return 0  # File is tracked and modified
+    fi
+    
+    debug_log "File is not Git-tracked or not modified: $file_path"
+    return 1  # File is not tracked or not modified
+}
+
+# Check if file should be ignored (temporary files, etc.)
+should_ignore_file() {
+    local file_path=$1
+    local filename=$(basename "$file_path")
+    
+    # Ignore common temporary and system files
+    local ignore_patterns=(
+        "*.lock"
+        "*.tmp"
+        "*.temp"
+        "*.swp"
+        "*.swo"
+        "*~"
+        ".DS_Store"
+        "Thumbs.db"
+        ".git/index.lock"
+        ".git/refs/heads/*.lock"
+        ".git/refs/tags/*.lock"
+        "*.pyc"
+        "__pycache__"
+        "node_modules"
+        ".pytest_cache"
+        ".coverage"
+        "*.log"
+    )
+    
+    for pattern in "${ignore_patterns[@]}"; do
+        if [[ "$filename" == $pattern ]] || [[ "$file_path" == *"$pattern"* ]]; then
+            debug_log "File ignored by pattern '$pattern': $file_path"
+            return 0  # Should ignore
+        fi
+    done
+    
+    debug_log "File not ignored: $file_path"
+    return 1  # Should not ignore
+}
+
+# Get Git-tracked files
+get_git_files() {
+    local source_dir=$1
+    local git_files=()
+    
+    # Change to source directory to run git commands
+    cd "$source_dir" || return 1
+    
+    # Get modified, staged, and untracked files
+    local modified_files=($(git status --porcelain | grep '^ M\|^M ' | awk '{print $2}' 2>/dev/null))
+    local staged_files=($(git status --porcelain | grep '^M ' | awk '{print $2}' 2>/dev/null))
+    local untracked_files=($(git status --porcelain | grep '^??' | awk '{print $2}' 2>/dev/null))
+    
+    debug_log "Git modified files: ${modified_files[*]}"
+    debug_log "Git staged files: ${staged_files[*]}"
+    debug_log "Git untracked files: ${untracked_files[*]}"
+    
+    # Combine all files
+    git_files=("${modified_files[@]}" "${staged_files[@]}" "${untracked_files[@]}")
+    
+    # Convert to absolute paths
+    local absolute_files=()
+    for file in "${git_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            absolute_files+=("$(realpath "$file")")
+        fi
+    done
+    
+    debug_log "Git absolute files: ${absolute_files[*]}"
+    echo "${absolute_files[@]}"
+}
+
+# Main debug function
+debug_file() {
+    local file_path="$1"
+    local source_dir="$2"
+    
+    echo -e "${BLUE}=== DEBUGGING FILE: $file_path ===${NC}"
+    
+    # Check if file exists
+    if [[ ! -f "$file_path" ]]; then
+        echo -e "${RED}✗ File does not exist: $file_path${NC}"
+        return
+    fi
+    
+    echo -e "${GREEN}✓ File exists${NC}"
+    
+    # Check if it's in the source directory
+    if [[ "$file_path" != "$source_dir"* ]]; then
+        echo -e "${RED}✗ File is not in source directory${NC}"
+        return
+    fi
+    
+    echo -e "${GREEN}✓ File is in source directory${NC}"
+    
+    # Check if it should be ignored
+    if should_ignore_file "$file_path"; then
+        echo -e "${RED}✗ File should be ignored${NC}"
+        return
+    fi
+    
+    echo -e "${GREEN}✓ File should not be ignored${NC}"
+    
+    # Check Git status
+    cd "$source_dir" || return 1
+    local relative_path=${file_path#$source_dir/}
+    local git_status=$(git status --porcelain "$relative_path" 2>/dev/null)
+    echo -e "${CYAN}Git status: '$git_status'${NC}"
+    
+    # Check if file is tracked by Git
+    if git ls-files "$relative_path" &>/dev/null; then
+        echo -e "${GREEN}✓ File is tracked by Git${NC}"
+    else
+        echo -e "${YELLOW}⚠ File is not tracked by Git${NC}"
+    fi
+    
+    # Check if file has changes
+    if echo "$git_status" | grep -q .; then
+        echo -e "${GREEN}✓ File has Git changes (modified/staged/untracked)${NC}"
+    else
+        echo -e "${YELLOW}⚠ File has no Git changes${NC}"
+    fi
+    
+    # Check file size
+    local file_size=$(stat -f %z "$file_path" 2>/dev/null || stat -c %s "$file_path" 2>/dev/null)
+    echo -e "${CYAN}File size: $file_size bytes${NC}"
+    
+    echo -e "${BLUE}=== END DEBUG ===${NC}"
+    echo ""
+}
+
+# Usage
+if [[ $# -lt 2 ]]; then
+    echo "Usage: $0 <source_directory> <file_path>"
+    echo "Example: $0 /path/to/source batch/mp/TestBizInsightsEnabledBatch.php"
+    exit 1
+fi
+
+SOURCE_DIR="$1"
+FILE_PATH="$2"
+
+# Convert to absolute path if needed
+if [[ ! "$FILE_PATH" = /* ]]; then
+    FILE_PATH="$SOURCE_DIR/$FILE_PATH"
+fi
+
+echo -e "${BLUE}Debugging k8s-sync for file: $FILE_PATH${NC}"
+echo -e "${BLUE}Source directory: $SOURCE_DIR${NC}"
+echo ""
+
+# Check if source directory is a Git repository
+if [[ ! -d "$SOURCE_DIR/.git" ]]; then
+    echo -e "${RED}Error: Source directory is not a Git repository${NC}"
+    exit 1
+fi
+
+# Debug the specific file
+debug_file "$FILE_PATH" "$SOURCE_DIR"
+
+# Also show all Git-tracked files for comparison
+echo -e "${BLUE}=== ALL GIT-TRACKED FILES ===${NC}"
+cd "$SOURCE_DIR" || exit 1
+git ls-files | head -20
+echo "... (showing first 20 files)"
+echo ""
+
+# Show Git status
+echo -e "${BLUE}=== GIT STATUS ===${NC}"
+git status --porcelain | head -10
+echo "... (showing first 10 entries)"
+echo ""
+
+echo -e "${YELLOW}If the file is not showing up in Git status, it means it's committed and unchanged.${NC}"
+echo -e "${YELLOW}To sync it, you can either:${NC}"
+echo -e "${YELLOW}1. Use --all-files mode: k8s-sync --all-files <source_dir> <pod_name>${NC}"
+echo -e "${YELLOW}2. Make a small change to the file to trigger Git detection${NC}"
+echo -e "${YELLOW}3. Add the file to Git if it's untracked: git add <file>${NC}" 

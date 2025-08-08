@@ -14,6 +14,7 @@ NC='\033[0m' # No Color
 DOWNLOADS_DIR="$HOME/Downloads"
 COUNT=1
 MINUTES=""
+NEW_NAME=""
 
 # Help function
 show_help() {
@@ -25,6 +26,7 @@ show_help() {
     echo "  -h, --help       Show this help message"
     echo "  -m, --minutes N  Move files downloaded in the last N minutes"
     echo "  -d, --downloads  Specify custom downloads directory"
+    echo "  -r, --rename N   Rename the file when moving (only works with single file)"
     echo ""
     echo "ARGUMENTS:"
     echo "  COUNT           Number of recent files to move (default: 1)"
@@ -33,6 +35,7 @@ show_help() {
     echo "  move-recent-downloads           # Move the most recent file"
     echo "  move-recent-downloads 3         # Move the 3 most recent files"
     echo "  move-recent-downloads -m 10     # Move files from last 10 minutes"
+    echo "  move-recent-downloads -r newname.txt  # Move and rename the most recent file"
     echo ""
     echo "Author: Yuwei Liang"
 }
@@ -50,6 +53,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -d|--downloads)
             DOWNLOADS_DIR="$2"
+            shift 2
+            ;;
+        -r|--rename)
+            NEW_NAME="$2"
             shift 2
             ;;
         -*)
@@ -72,6 +79,12 @@ done
 # Check if downloads directory exists
 if [[ ! -d "$DOWNLOADS_DIR" ]]; then
     echo -e "${RED}Error: Downloads directory '$DOWNLOADS_DIR' does not exist.${NC}"
+    exit 1
+fi
+
+# Validate rename option is only used with single file
+if [[ -n "$NEW_NAME" && "$COUNT" -ne 1 ]]; then
+    echo -e "${RED}Error: Rename option (-r) can only be used when moving a single file.${NC}"
     exit 1
 fi
 
@@ -106,16 +119,26 @@ MOVED_COUNT=0
 for file in "${FILES[@]}"; do
     if [[ -f "$file" ]]; then
         filename=$(basename "$file")
+        target_name="$filename"
+        
+        # Use new name if specified and this is the first file
+        if [[ -n "$NEW_NAME" && $MOVED_COUNT -eq 0 ]]; then
+            target_name="$NEW_NAME"
+        fi
         
         # Check if file already exists in current directory
-        if [[ -f "$CURRENT_DIR/$filename" ]]; then
-            echo -e "${YELLOW}Warning: '$filename' already exists in current directory. Skipping.${NC}"
+        if [[ -f "$CURRENT_DIR/$target_name" ]]; then
+            echo -e "${YELLOW}Warning: '$target_name' already exists in current directory. Skipping.${NC}"
             continue
         fi
         
-        # Move the file
-        if mv "$file" "$CURRENT_DIR/"; then
-            echo -e "${GREEN}✓ Moved: $filename${NC}"
+        # Move the file (with rename if specified)
+        if mv "$file" "$CURRENT_DIR/$target_name"; then
+            if [[ "$filename" != "$target_name" ]]; then
+                echo -e "${GREEN}✓ Moved and renamed: $filename -> $target_name${NC}"
+            else
+                echo -e "${GREEN}✓ Moved: $filename${NC}"
+            fi
             ((MOVED_COUNT++))
         else
             echo -e "${RED}✗ Failed to move: $filename${NC}"

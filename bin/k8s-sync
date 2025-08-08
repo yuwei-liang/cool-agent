@@ -27,10 +27,49 @@ GIT_MODE=true
 ALL_FILES_MODE=false
 MAX_FILE_SIZE=10485760  # 10MB default
 DEBUG=false
+NOTIFICATIONS=true
 
 # Track synced files to avoid duplicates
 declare -A SYNCED_FILES
 declare -A LAST_SYNC_TIME
+
+# Track sync statistics (using simple variables instead of associative array)
+SYNC_SUCCESSFUL=0
+SYNC_FAILED=0
+SYNC_SKIPPED=0
+
+# Send macOS notification
+send_notification() {
+    local title="$1"
+    local message="$2"
+    local subtitle="$3"
+    
+    if [[ "$NOTIFICATIONS" == true ]] && command -v osascript &> /dev/null; then
+        osascript -e "display notification \"$message\" with title \"$title\" subtitle \"$subtitle\"" 2>/dev/null
+    fi
+}
+
+# Send sync summary notification
+send_sync_summary() {
+    if [[ $SYNC_SUCCESSFUL -gt 0 ]] || [[ $SYNC_FAILED -gt 0 ]]; then
+        local title="K8s Sync Complete"
+        local message="Synced: $SYNC_SUCCESSFUL, Failed: $SYNC_FAILED, Skipped: $SYNC_SKIPPED"
+        local subtitle="$POD_NAME ($NAMESPACE)"
+        
+        if [[ $SYNC_FAILED -eq 0 ]]; then
+            send_notification "$title" "$message" "$subtitle"
+        else
+            send_notification "$title ⚠️" "$message" "$subtitle"
+        fi
+    fi
+}
+
+# Reset sync statistics
+reset_sync_stats() {
+    SYNC_SUCCESSFUL=0
+    SYNC_FAILED=0
+    SYNC_SKIPPED=0
+}
 
 # Help function
 show_help() {
@@ -52,6 +91,7 @@ show_help() {
     echo "  -i, --include PATTERN   Include only files matching pattern (can be used multiple times)"
     echo "  --all-files             Sync all files (not just Git-tracked files)"
     echo "  --max-size SIZE         Maximum file size in bytes (default: 10485760 = 10MB)"
+    echo "  --no-notifications      Disable macOS notifications"
     echo "  --dry-run               Show what would be synced without actually syncing"
     echo "  -v, --verbose           Verbose output"
     echo "  --debug                 Debug mode (shows all filtering decisions)"
@@ -65,6 +105,14 @@ show_help() {
     echo "  k8s-sync --dry-run ./src test-pod            # Preview sync operations"
     echo "  k8s-sync --debug ./src test-pod              # Debug mode"
     echo ""
+    echo "TROUBLESHOOTING:"
+    echo "  If files aren't syncing, they might be:"
+    echo "  - Not tracked by Git (use --all-files mode)"
+    echo "  - Already committed with no changes (make a small change)"
+    echo "  - Excluded by patterns (check -e options)"
+    echo "  - Too large (check --max-size)"
+    echo "  Use k8s-sync-debug <source_dir> <file_path> to debug specific files"
+    echo ""
     echo "DEPENDENCIES:"
     echo "  - kubectl (must be configured)"
     echo "  - fswatch (install with: brew install fswatch)"
@@ -76,7 +124,7 @@ show_help() {
 # Debug function
 debug_log() {
     if [[ "$DEBUG" == true ]]; then
-        echo -e "${PURPLE}[DEBUG] $1${NC}"
+        echo -e "${PURPLE}[DEBUG] $1${NC}" >&2
     fi
 }
 
@@ -169,7 +217,7 @@ has_file_changed() {
     debug_log "File: $file, Current mtime: $current_mtime, Last mtime: $last_mtime"
     
     if [[ "$current_mtime" != "$last_mtime" ]]; then
-        LAST_SYNC_TIME[$file]=$current_mtime
+        LAST_SYNC_TIME[$file_path]=$(($(date +%s) + 1))
         debug_log "File has changed: $file"
         return 0  # File has changed
     fi
@@ -187,13 +235,14 @@ get_git_files() {
     cd "$source_dir" || return 1
     
     # Get modified, staged, and untracked files
+    # Redirect debug output to stderr to avoid capturing it in command substitution
     local modified_files=($(git status --porcelain | grep '^ M\|^M ' | awk '{print $2}' 2>/dev/null))
     local staged_files=($(git status --porcelain | grep '^M ' | awk '{print $2}' 2>/dev/null))
     local untracked_files=($(git status --porcelain | grep '^??' | awk '{print $2}' 2>/dev/null))
     
-    debug_log "Git modified files: ${modified_files[*]}"
-    debug_log "Git staged files: ${staged_files[*]}"
-    debug_log "Git untracked files: ${untracked_files[*]}"
+    debug_log "Git modified files: ${modified_files[*]}" >&2
+    debug_log "Git staged files: ${staged_files[*]}" >&2
+    debug_log "Git untracked files: ${untracked_files[*]}" >&2
     
     # Combine all files
     git_files=("${modified_files[@]}" "${staged_files[@]}" "${untracked_files[@]}")
@@ -206,7 +255,7 @@ get_git_files() {
         fi
     done
     
-    debug_log "Git absolute files: ${absolute_files[*]}"
+    debug_log "Git absolute files: ${absolute_files[*]}" >&2
     echo "${absolute_files[@]}"
 }
 
@@ -278,6 +327,7 @@ sync_file() {
     # Check if file has actually changed
     if ! has_file_changed "$file_path"; then
         [[ "$VERBOSE" == true ]] && echo -e "${PURPLE}Skipping unchanged file: $relative_path${NC}"
+        ((SYNC_SKIPPED++))
         return
     fi
     
@@ -286,6 +336,9 @@ sync_file() {
         SYNCED_FILES[$file_path]=1
         return
     fi
+
+    # Print pre-sync message
+    echo -e "${BLUE}⟳ Syncing: $relative_path${NC}"
     
     # Create remote directory structure
     local remote_dir=$(dirname "$REMOTE_PATH/$relative_path")
@@ -295,8 +348,12 @@ sync_file() {
     if [[ $? -ne 0 ]]; then
         debug_log "Failed to create remote directory: $mkdir_output"
         echo -e "${RED}✗ Failed to create remote directory: $remote_dir${NC}"
+        ((SYNC_FAILED++))
         return
     fi
+    
+    # Get current time before sync (add 1 second to ensure it's ahead)
+    LAST_SYNC_TIME[$file_path]=$(($(date +%s) + 1))
     
     # Copy file to pod - using the exact format that worked manually
     local kubectl_cmd="kubectl cp \"$file_path\" \"$NAMESPACE/$POD_NAME:$REMOTE_PATH/$relative_path\""
@@ -343,13 +400,16 @@ sync_file() {
         if [[ $verify_exit_code -eq 0 ]]; then
             echo -e "${GREEN}✓ Synced: $relative_path${NC}"
             SYNCED_FILES[$file_path]=1
+            ((SYNC_SUCCESSFUL++))
         else
             echo -e "${RED}✗ File sync appeared successful but file not found: $relative_path${NC}"
             echo -e "${RED}Verification error: $verify_output${NC}"
+            ((SYNC_FAILED++))
         fi
     else
         echo -e "${RED}✗ Failed to sync: $relative_path${NC}"
         echo -e "${RED}Error: $cp_output${NC}"
+        ((SYNC_FAILED++))
     fi
 }
 
@@ -509,6 +569,10 @@ while [[ $# -gt 0 ]]; do
             MAX_FILE_SIZE="$2"
             shift 2
             ;;
+        --no-notifications)
+            NOTIFICATIONS=false
+            shift
+            ;;
         --dry-run)
             DRY_RUN=true
             shift
@@ -602,7 +666,12 @@ fi
 [[ ${#INCLUDE_PATTERNS[@]} -gt 0 ]] && echo "  Include Patterns: ${INCLUDE_PATTERNS[*]}"
 [[ "$DRY_RUN" == true ]] && echo -e "  ${CYAN}DRY RUN MODE${NC}"
 [[ "$DEBUG" == true ]] && echo -e "  ${PURPLE}DEBUG MODE${NC}"
+[[ "$NOTIFICATIONS" == true ]] && echo -e "  ${GREEN}Notifications: Enabled${NC}"
+[[ "$NOTIFICATIONS" == false ]] && echo -e "  ${YELLOW}Notifications: Disabled${NC}"
 echo ""
+
+# Reset sync statistics
+reset_sync_stats
 
 # Initial sync
 echo -e "${BLUE}Performing initial sync...${NC}"
@@ -631,8 +700,29 @@ else
 fi
 
 echo -e "${GREEN}Initial sync complete!${NC}"
+
+# Send initial sync notification
+if [[ "$DRY_RUN" != true ]]; then
+    send_sync_summary
+fi
+
 echo -e "${BLUE}Watching for changes... (Press Ctrl+C to stop)${NC}"
 echo ""
+
+# Set up signal handler for graceful shutdown
+cleanup() {
+    echo ""
+    echo -e "${BLUE}Shutting down k8s-sync...${NC}"
+    
+    # Send final sync summary
+    if [[ "$DRY_RUN" != true ]]; then
+        send_sync_summary
+    fi
+    
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
 
 # Watch for changes using fswatch for both modes
 fswatch -r -l "$WATCH_DELAY" "$SOURCE_DIR" | while read -r file; do
@@ -666,5 +756,8 @@ fswatch -r -l "$WATCH_DELAY" "$SOURCE_DIR" | while read -r file; do
     if should_sync_file "$file"; then
         relative_path=${file#$SOURCE_DIR/}
         sync_file "$file" "$relative_path"
+        
+        # Send notification after each sync (optional - can be removed if too noisy)
+        # send_sync_summary
     fi
 done 
