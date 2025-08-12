@@ -130,7 +130,7 @@ main() {
     print_status "Current plugins: $current_plugins"
     
     # Define recommended plugins
-    local recommended_plugins="z git-extras git-auto-fetch github"
+    local recommended_plugins="z git-extras git-auto-fetch github svn"
     
     # Add plugins
     add_plugins "$current_plugins" "$recommended_plugins"
@@ -148,6 +148,7 @@ main() {
     echo "  • git-extras - Additional git commands (git ignore, git summary, etc.)"
     echo "  • git-auto-fetch - Auto-fetch from remote repositories"
     echo "  • github - GitHub CLI integration"
+    echo "  • svn - SVN (Subversion) support with status display and aliases"
 }
 
 # Run main function

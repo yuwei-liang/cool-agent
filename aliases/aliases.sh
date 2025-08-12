@@ -54,6 +54,24 @@ alias gco='git checkout'
 alias gb='git branch'
 alias glog='git log --oneline --graph --decorate'
 
+# === SVN Shortcuts ===
+
+# Basic SVN commands
+alias ss='svn status'
+alias sa='svn add'
+alias sco='svn commit'
+alias scom='svn commit -m'
+alias sup='svn update'
+alias sd='svn diff'
+alias slog='svn log'
+alias sinfo='svn info'
+
+# SVN Changelist commands
+alias scl='svn changelist'
+alias sclr='svn changelist --remove'
+alias scls='svn status --changelist'
+alias sclc='svn commit --changelist'
+
 # === System Utilities ===
 
 # Process management
@@ -94,6 +112,45 @@ alias k8s-watch='k8s-sync'
 # Create and enter directory
 mkcd() {
     mkdir -p "$1" && cd "$1"
+}
+
+# SVN Changelist utilities
+scl-add() {
+    if [[ -z "$1" || -z "$2" ]]; then
+        echo "Usage: scl-add <changelist-name> <file>..."
+        echo "Example: scl-add feature-login login.js auth.js"
+        return 1
+    fi
+    
+    local changelist="$1"
+    shift
+    svn changelist "$changelist" "$@"
+    echo "Added files to changelist '$changelist'"
+}
+
+scl-list() {
+    echo "Current changelists:"
+    svn status | grep -E "^--- Changelist" || echo "No changelists found"
+    echo ""
+    echo "Files in changelists:"
+    svn status | grep -E "^\s+[AM]" || echo "No files in changelists"
+}
+
+scl-commit() {
+    if [[ -z "$1" ]]; then
+        echo "Usage: scl-commit <changelist-name> [commit-message]"
+        echo "Example: scl-commit feature-login 'Add login functionality'"
+        return 1
+    fi
+    
+    local changelist="$1"
+    local message="$2"
+    
+    if [[ -n "$message" ]]; then
+        svn commit --changelist "$changelist" -m "$message"
+    else
+        svn commit --changelist "$changelist"
+    fi
 }
 
 # Find and kill process by name
@@ -171,6 +228,23 @@ cool-help() {
     echo "  ksync, k8s-watch       - Watch folder and sync to Kubernetes pod"
     echo "  cool-help              - Show this help"
     echo "  cool-update            - Update cool-agent aliases"
+    echo ""
+    echo "Git Aliases:"
+    echo "  gs, ga, gc, gp, gpl     - git status, add, commit, push, pull"
+    echo "  glog                   - Pretty git log"
+    echo ""
+    echo "SVN Aliases:"
+    echo "  ss, sa, sco, sup       - svn status, add, commit, update"
+    echo "  sd, slog, sinfo        - svn diff, log, info"
+    echo ""
+    echo "SVN Changelist:"
+    echo "  scl                    - svn changelist (add files to changelist)"
+    echo "  sclr                   - Remove files from changelist"
+    echo "  scls                   - Show status for changelist"
+    echo "  sclc                   - Commit changelist"
+    echo "  scl-add <name> <files> - Add files to named changelist"
+    echo "  scl-list               - List all changelists and files"
+    echo "  scl-commit <name> [msg]- Commit specific changelist"
     echo ""
     echo "Run any command with --help for detailed usage."
 }
