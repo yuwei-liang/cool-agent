@@ -28,6 +28,7 @@ ALL_FILES_MODE=false
 MAX_FILE_SIZE=10485760  # 10MB default
 DEBUG=false
 NOTIFICATIONS=true
+PER_FILE_NOTIFICATIONS=false
 
 # Track synced files to avoid duplicates
 declare -A SYNCED_FILES
@@ -46,6 +47,21 @@ send_notification() {
     
     if [[ "$NOTIFICATIONS" == true ]] && command -v osascript &> /dev/null; then
         osascript -e "display notification \"$message\" with title \"$title\" subtitle \"$subtitle\"" 2>/dev/null
+    fi
+}
+
+# Test notification function
+test_notification() {
+    if [[ "$NOTIFICATIONS" == true ]]; then
+        echo -e "${BLUE}Testing notification...${NC}"
+        send_notification "Test Notification" "This is a test notification from k8s-sync" "Test"
+        echo -e "${GREEN}Test notification sent!${NC}"
+        echo "If you don't see it, check:"
+        echo "  1. macOS notification permissions for Terminal/iTerm"
+        echo "  2. Notification Center settings"
+        echo "  3. Do Not Disturb mode"
+    else
+        echo -e "${YELLOW}Notifications are disabled${NC}"
     fi
 }
 
@@ -92,6 +108,8 @@ show_help() {
     echo "  --all-files             Sync all files (not just Git-tracked files)"
     echo "  --max-size SIZE         Maximum file size in bytes (default: 10485760 = 10MB)"
     echo "  --no-notifications      Disable macOS notifications"
+    echo "  --per-file-notifications Send notification for each file sync"
+    echo "  --test-notifications    Test notification functionality"
     echo "  --dry-run               Show what would be synced without actually syncing"
     echo "  -v, --verbose           Verbose output"
     echo "  --debug                 Debug mode (shows all filtering decisions)"
@@ -104,6 +122,8 @@ show_help() {
     echo "  k8s-sync -i '*.py' ./src python-pod          # Sync only Python files"
     echo "  k8s-sync --dry-run ./src test-pod            # Preview sync operations"
     echo "  k8s-sync --debug ./src test-pod              # Debug mode"
+    echo "  k8s-sync --per-file-notifications ./src pod  # Notify for each file sync"
+    echo "  k8s-sync --test-notifications                # Test notifications"
     echo ""
     echo "TROUBLESHOOTING:"
     echo "  If files aren't syncing, they might be:"
@@ -112,6 +132,9 @@ show_help() {
     echo "  - Excluded by patterns (check -e options)"
     echo "  - Too large (check --max-size)"
     echo "  Use k8s-sync-debug <source_dir> <file_path> to debug specific files"
+    echo "  If notifications aren't working:"
+    echo "  - Check macOS notification permissions for Terminal/iTerm"
+    echo "  - Use --per-file-notifications for individual file sync notifications"
     echo ""
     echo "DEPENDENCIES:"
     echo "  - kubectl (must be configured)"
@@ -573,6 +596,14 @@ while [[ $# -gt 0 ]]; do
             NOTIFICATIONS=false
             shift
             ;;
+        --per-file-notifications)
+            PER_FILE_NOTIFICATIONS=true
+            shift
+            ;;
+        --test-notifications)
+            test_notification
+            exit 0
+            ;;
         --dry-run)
             DRY_RUN=true
             shift
@@ -668,6 +699,7 @@ fi
 [[ "$DEBUG" == true ]] && echo -e "  ${PURPLE}DEBUG MODE${NC}"
 [[ "$NOTIFICATIONS" == true ]] && echo -e "  ${GREEN}Notifications: Enabled${NC}"
 [[ "$NOTIFICATIONS" == false ]] && echo -e "  ${YELLOW}Notifications: Disabled${NC}"
+[[ "$PER_FILE_NOTIFICATIONS" == true ]] && echo -e "  ${CYAN}Per-file notifications: Enabled${NC}"
 echo ""
 
 # Reset sync statistics
@@ -733,6 +765,11 @@ fswatch -r -l "$WATCH_DELAY" "$SOURCE_DIR" | while read -r file; do
         debug_log "File doesn't exist (deleted): $file"
         relative_path=${file#$SOURCE_DIR/}
         remove_file "$relative_path"
+        
+        # Send notification for file removal if per-file notifications are enabled
+        if [[ "$PER_FILE_NOTIFICATIONS" == true ]] && [[ "$NOTIFICATIONS" == true ]]; then
+            send_notification "File Removed" "$relative_path" "$POD_NAME ($NAMESPACE)"
+        fi
         continue
     fi
     
@@ -757,7 +794,15 @@ fswatch -r -l "$WATCH_DELAY" "$SOURCE_DIR" | while read -r file; do
         relative_path=${file#$SOURCE_DIR/}
         sync_file "$file" "$relative_path"
         
-        # Send notification after each sync (optional - can be removed if too noisy)
-        # send_sync_summary
+        # Send notification after each sync if per-file notifications are enabled
+        if [[ "$PER_FILE_NOTIFICATIONS" == true ]] && [[ "$NOTIFICATIONS" == true ]]; then
+            send_notification "File Synced" "$relative_path" "$POD_NAME ($NAMESPACE)"
+        fi
+    else
+        # Notify about skipped files if verbose and notifications enabled
+        if [[ "$VERBOSE" == true ]] && [[ "$NOTIFICATIONS" == true ]]; then
+            relative_path=${file#$SOURCE_DIR/}
+            send_notification "File Skipped" "$relative_path" "$POD_NAME ($NAMESPACE)"
+        fi
     fi
 done 

@@ -115,6 +115,32 @@ install_git_extras() {
     fi
 }
 
+# Install zsh-autocomplete plugin
+install_zsh_autocomplete() {
+    local plugin_dir="$ZSH/custom/plugins/zsh-autocomplete"
+    
+    if [ ! -d "$plugin_dir" ]; then
+        print_status "Installing zsh-autocomplete plugin..."
+        git clone https://github.com/marlonrichert/zsh-autocomplete.git "$plugin_dir"
+        print_success "Installed zsh-autocomplete plugin"
+    else
+        print_success "zsh-autocomplete plugin is already installed"
+    fi
+}
+
+# Install zsh-autosuggestions plugin
+install_zsh_autosuggestions() {
+    local plugin_dir="$ZSH/custom/plugins/zsh-autosuggestions"
+    
+    if [ ! -d "$plugin_dir" ]; then
+        print_status "Installing zsh-autosuggestions plugin..."
+        git clone https://github.com/zsh-users/zsh-autosuggestions.git "$plugin_dir"
+        print_success "Installed zsh-autosuggestions plugin"
+    else
+        print_success "zsh-autosuggestions plugin is already installed"
+    fi
+}
+
 # Main function
 main() {
     print_status "Starting oh-my-zsh plugins installation..."
@@ -130,13 +156,19 @@ main() {
     print_status "Current plugins: $current_plugins"
     
     # Define recommended plugins
-    local recommended_plugins="z git-extras git-auto-fetch github svn"
+    local recommended_plugins="z git-extras git-auto-fetch github svn zsh-autosuggestions"
     
     # Add plugins
     add_plugins "$current_plugins" "$recommended_plugins"
     
     # Install git-extras if needed
     install_git_extras
+    
+    # Install zsh-autocomplete plugin
+    install_zsh_autocomplete
+    
+    # Install zsh-autosuggestions plugin
+    install_zsh_autosuggestions
     
     print_success "Plugin installation complete!"
     print_status "To activate the changes, run: source ~/.zshrc"
@@ -149,6 +181,8 @@ main() {
     echo "  • git-auto-fetch - Auto-fetch from remote repositories"
     echo "  • github - GitHub CLI integration"
     echo "  • svn - SVN (Subversion) support with status display and aliases"
+    echo "  • zsh-autocomplete - Real-time type-ahead completion for zsh"
+    echo "  • zsh-autosuggestions - Fish-like autosuggestions for zsh"
 }
 
 # Run main function
